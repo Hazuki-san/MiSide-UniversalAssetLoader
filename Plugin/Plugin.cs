@@ -665,6 +665,192 @@ public class Plugin : MonoBehaviour
         UnityEngine.Debug.Log($"[INFO] Patched Mita in {stopwatch.ElapsedMilliseconds}ms.");
     }
 
+    public static void FindPlayer()
+    {
+        GameObject person = GameObject.Find("Person");
+        if (person == null)
+        {
+            //UnityEngine.Debug.LogWarning("[WARN] 'Person' object not found.");
+            return;
+        }
+
+        //UnityEngine.Debug.Log("[INFO] 'Person' object found.");
+        PatchPlayer(person);
+    }
+
+    public static void PatchPlayer(GameObject person)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        var renderers = new Dictionary<string, SkinnedMeshRenderer>();
+        var staticRenderers = new Dictionary<string, MeshRenderer>();
+
+        var skinnedRenderers = person.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        foreach (var renderer in skinnedRenderers)
+            renderers[renderer.name] = renderer;
+
+        var meshRenderers = person.GetComponentsInChildren<MeshRenderer>(true);
+        foreach (var renderer in meshRenderers)
+            staticRenderers[renderer.name] = renderer;
+
+        foreach (var command in assetCommands)
+        {
+            if (command.args.Length == 0 || command.args[0] != "Player")
+                continue;
+
+            try
+            {
+                switch (command.name)
+                {
+                    case "remove":
+                        if (renderers.ContainsKey(command.args[1]))
+                        {
+                            renderers[command.args[1]].gameObject.SetActive(false);
+                            UnityEngine.Debug.Log($"[INFO] Removed skinned part: {command.args[1]}");
+                        }
+                        else if (staticRenderers.ContainsKey(command.args[1]))
+                        {
+                            staticRenderers[command.args[1]].gameObject.SetActive(false);
+                            UnityEngine.Debug.Log($"[INFO] Removed static part: {command.args[1]}");
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[WARN] Renderer not found for removal: {command.args[1]}");
+                        }
+                        break;
+
+                    case "recover":
+                        if (renderers.ContainsKey(command.args[1]))
+                        {
+                            renderers[command.args[1]].gameObject.SetActive(true);
+                            UnityEngine.Debug.Log($"[INFO] Recovered skinned part: {command.args[1]}");
+                        }
+                        else if (staticRenderers.ContainsKey(command.args[1]))
+                        {
+                            staticRenderers[command.args[1]].gameObject.SetActive(true);
+                            UnityEngine.Debug.Log($"[INFO] Recovered static part: {command.args[1]}");
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[WARN] Renderer not found for recovery: {command.args[1]}");
+                        }
+                        break;
+
+                    case "replace_tex":
+                        if (renderers.ContainsKey(command.args[1]))
+                        {
+                            renderers[command.args[1]].material.mainTexture = loadedTextures[command.args[2]];
+                            UnityEngine.Debug.Log($"[INFO] Replaced texture on skinned: {command.args[1]}");
+                        }
+                        else if (staticRenderers.ContainsKey(command.args[1]))
+                        {
+                            staticRenderers[command.args[1]].material.mainTexture = loadedTextures[command.args[2]];
+                            UnityEngine.Debug.Log($"[INFO] Replaced texture on static: {command.args[1]}");
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[WARN] Renderer not found for texture replacement: {command.args[1]}");
+                        }
+                        break;
+
+                    case "replace_mesh":
+                        if (renderers.ContainsKey(command.args[1]))
+                        {
+                            var meshData = loadedModels[command.args[2]].FirstOrDefault();
+                            if (meshData != null)
+                            {
+                                renderers[command.args[1]].sharedMesh = AssetLoader.BuildMesh(meshData);
+                                UnityEngine.Debug.Log($"[INFO] Replaced mesh on skinned: {command.args[1]}");
+                            }
+                        }
+                        else if (staticRenderers.ContainsKey(command.args[1]))
+                        {
+                            var meshData = loadedModels[command.args[2]].FirstOrDefault();
+                            if (meshData != null)
+                            {
+                                staticRenderers[command.args[1]].GetComponent<MeshFilter>().mesh = AssetLoader.BuildMesh(meshData);
+                                UnityEngine.Debug.Log($"[INFO] Replaced mesh on static: {command.args[1]}");
+                            }
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[WARN] Renderer not found for mesh replacement: {command.args[1]}");
+                        }
+                        break;
+
+                    case "create_skinned_appendix":
+                        if (renderers.ContainsKey(command.args[2]))
+                        {
+                            var parent = renderers[command.args[2]];
+                            var objSkinned = UnityEngine.Object.Instantiate(parent, parent.transform.position, parent.transform.rotation, parent.transform.parent);
+                            objSkinned.name = command.args[1];
+                            objSkinned.material = new Material(parent.material);
+                            objSkinned.transform.localEulerAngles = new Vector3(-90f, 0, 0);
+                            objSkinned.gameObject.SetActive(true);
+                            renderers[command.args[1]] = objSkinned;
+                            UnityEngine.Debug.Log($"[INFO] Created skinned appendix: {command.args[1]}");
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[WARN] Parent renderer not found for skinned appendix: {command.args[2]}");
+                        }
+                        break;
+
+                    case "set_scale":
+                        var objScale = RecursiveFindChild(person.transform, command.args[1]);
+                        if (objScale != null)
+                        {
+                            objScale.localScale = new Vector3(
+                                float.Parse(command.args[2]),
+                                float.Parse(command.args[3]),
+                                float.Parse(command.args[4])
+                            );
+                            UnityEngine.Debug.Log($"[INFO] Set scale of {command.args[1]} to ({command.args[2]}, {command.args[3]}, {command.args[4]})");
+                        }
+                        break;
+
+                    case "move_position":
+                        var objMove = RecursiveFindChild(person.transform, command.args[1]);
+                        if (objMove != null)
+                        {
+                            objMove.localPosition += new Vector3(
+                                float.Parse(command.args[2]),
+                                float.Parse(command.args[3]),
+                                float.Parse(command.args[4])
+                            );
+                            UnityEngine.Debug.Log($"[INFO] Moved position of {command.args[1]}");
+                        }
+                        break;
+
+                    case "set_rotation":
+                        var objRotate = RecursiveFindChild(person.transform, command.args[1]);
+                        if (objRotate != null)
+                        {
+                            objRotate.localRotation = new Quaternion(
+                                float.Parse(command.args[2]),
+                                float.Parse(command.args[3]),
+                                float.Parse(command.args[4]),
+                                float.Parse(command.args[5])
+                            );
+                            UnityEngine.Debug.Log($"[INFO] Set rotation of {command.args[1]}");
+                        }
+                        break;
+
+                    default:
+                        UnityEngine.Debug.LogWarning($"[WARN] Unsupported command for Player: {command.name}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError($"[ERROR] Error processing command: {command.name} {string.Join(" ", command.args)}\n{ex}");
+            }
+
+            stopwatch.Stop();
+            UnityEngine.Debug.Log($"[INFO] Patched Player in {stopwatch.ElapsedMilliseconds}ms.");
+        }
+    }
+
     static Transform RecursiveFindChild(Transform parent, string childName)
     {
         for (int i = 0; i < parent.childCount; i++)
@@ -758,6 +944,7 @@ public class Plugin : MonoBehaviour
         if (UnityEngine.Input.GetKeyDown(KeyCode.F5))
         {
             LoadAssetsForPatch();
+            FindPlayer();
             FindMita();
         }
 
@@ -842,6 +1029,7 @@ public class Plugin : MonoBehaviour
         {
             UnityEngine.Debug.Log($"[INFO] Scene changed to: {currentSceneName}.");
             LoadAssetsForPatch();
+            FindPlayer();
             FindMita();
             if (currentSceneName == "SceneMenu")
                 PatchMenuScene();
